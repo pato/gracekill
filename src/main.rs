@@ -7,6 +7,8 @@ use std::process;
 use std::thread;
 use std::time::{Duration, Instant};
 
+const DEFAULT_GRACE_SECONDS: u64 = 30;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -93,48 +95,62 @@ fn main() {
 }
 
 fn print_usage(program: &str) {
-    eprintln!("Usage: {program} <pid>[,pid...] [grace_seconds]");
+    eprintln!("Usage: {program} [options] <pid>[,pid...]");
     eprintln!();
     eprintln!("Arguments:");
-    eprintln!("  pid          Process ID(s) to kill (comma or space separated)");
-    eprintln!("  grace_seconds  Grace period in seconds (default: 5)");
+    eprintln!("  pid                    Process ID(s) to kill (comma or space separated)");
     eprintln!();
-    eprintln!("Example:");
-    eprintln!("  {program} 1234 5678 10");
-    eprintln!("  {program} 1234,5678,9012 30");
+    eprintln!("Options:");
+    eprintln!("  -g, --grace-seconds    Grace period in seconds (default: {DEFAULT_GRACE_SECONDS})");
+    eprintln!();
+    eprintln!("Examples:");
+    eprintln!("  {program} 1234 5678");
+    eprintln!("  {program} -g 10 1234 5678");
+    eprintln!("  {program} --grace-seconds 30 1234,5678,9012");
 }
 
 fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
     let mut pids = Vec::new();
-    let mut grace_seconds = 5u64;
+    let mut grace_seconds = DEFAULT_GRACE_SECONDS;
+    let mut i = 0;
 
-    for (i, arg) in args.iter().enumerate() {
-        // Check if this might be the grace period (last argument and parseable as number)
-        if i == args.len() - 1 {
-            if let Ok(seconds) = arg.parse::<u64>() {
-                // Only treat as grace period if we already have PIDs
-                if !pids.is_empty() {
-                    grace_seconds = seconds;
-                    break;
-                }
+    while i < args.len() {
+        let arg = &args[i];
+        
+        if arg == "-g" || arg == "--grace-seconds" {
+            i += 1;
+            if i >= args.len() {
+                return Err("Missing value for grace-seconds".to_string());
             }
-        }
-
-        // Parse PIDs (comma or space separated)
-        if arg.contains(',') {
-            for pid_str in arg.split(',') {
-                let pid = pid_str
-                    .trim()
+            grace_seconds = args[i]
+                .parse::<u64>()
+                .map_err(|_| format!("Invalid grace-seconds value: '{}'", args[i]))?;
+        } else if arg.starts_with("--grace-seconds=") {
+            let value = arg.strip_prefix("--grace-seconds=").unwrap();
+            grace_seconds = value
+                .parse::<u64>()
+                .map_err(|_| format!("Invalid grace-seconds value: '{value}'"))?;
+        } else if arg.starts_with('-') {
+            return Err(format!("Unknown option: '{arg}'"));
+        } else {
+            // Parse PIDs (comma or space separated)
+            if arg.contains(',') {
+                for pid_str in arg.split(',') {
+                    let pid = pid_str
+                        .trim()
+                        .parse::<u32>()
+                        .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
+                    pids.push(pid);
+                }
+            } else {
+                let pid = arg
                     .parse::<u32>()
-                    .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
+                    .map_err(|_| format!("Invalid PID: '{arg}'"))?;
                 pids.push(pid);
             }
-        } else {
-            let pid = arg
-                .parse::<u32>()
-                .map_err(|_| format!("Invalid PID: '{arg}'"))?;
-            pids.push(pid);
         }
+        
+        i += 1;
     }
 
     Ok((pids, Duration::from_secs(grace_seconds)))
