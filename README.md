@@ -82,13 +82,23 @@ SEE ALSO
 --------
 [kill(1)](https://man7.org/linux/man-pages/man1/kill.1.html), [signal(7)](https://man7.org/linux/man-pages/man7/signal.7.html)
 
+INSTALLATION
+------------
+Install from [crates.io](https://crates.io/crates/gracekill):
+
+```shell
+cargo install gracekill
+```
+
+BUILD FROM SOURCE
+-----------------
+```shell
+cargo build --release
+```
+
+Binary will be at target/release/gracekill
+
 NOTES
 -----
 Requires appropriate permissions to signal target processes.
 Only available on Unix-like systems.
-
-BUILD
------
-cargo build --release
-
-Binary will be at target/release/gracekill
