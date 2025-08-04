@@ -53,7 +53,7 @@ fn main() {
 
     if active_pids.is_empty() {
         log("No processes to wait for");
-        return;
+        process::exit(2); // No processes could be signaled
     }
 
     // Wait for processes to exit gracefully
@@ -75,6 +75,7 @@ fn main() {
     // Send SIGKILL to remaining processes
     if remaining.is_empty() {
         log("All processes exited gracefully");
+        process::exit(0);
     } else {
         log(&format!(
             "{} process(es) still running after grace period, sending SIGKILL",
@@ -82,15 +83,21 @@ fn main() {
         ));
 
         for &pid in &remaining {
-            match send_signal(pid, Signal::Kill) {
-                Ok(()) => {
-                    log(&format!("Sent SIGKILL to PID {pid}"));
+            // Double-check process still exists before SIGKILL
+            if is_process_running(pid) {
+                match send_signal(pid, Signal::Kill) {
+                    Ok(()) => {
+                        log(&format!("Sent SIGKILL to PID {pid}"));
+                    }
+                    Err(e) => {
+                        log(&format!("Failed to send SIGKILL to PID {pid}: {e}"));
+                    }
                 }
-                Err(e) => {
-                    log(&format!("Failed to send SIGKILL to PID {pid}: {e}"));
-                }
+            } else {
+                log(&format!("Process {pid} exited before SIGKILL"));
             }
         }
+        process::exit(3); // Had to use SIGKILL
     }
 }
 
@@ -101,7 +108,9 @@ fn print_usage(program: &str) {
     eprintln!("  pid                    Process ID(s) to kill (comma or space separated)");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  -g, --grace-seconds    Grace period in seconds (default: {DEFAULT_GRACE_SECONDS})");
+    eprintln!(
+        "  -g, --grace-seconds    Grace period in seconds (default: {DEFAULT_GRACE_SECONDS})"
+    );
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  {program} 1234 5678");
@@ -116,7 +125,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
 
     while i < args.len() {
         let arg = &args[i];
-        
+
         if arg == "-g" || arg == "--grace-seconds" {
             i += 1;
             if i >= args.len() {
@@ -140,16 +149,22 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
                         .trim()
                         .parse::<u32>()
                         .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
+                    if pid == 0 {
+                        return Err("PID 0 not allowed (affects process group)".to_string());
+                    }
                     pids.push(pid);
                 }
             } else {
                 let pid = arg
                     .parse::<u32>()
                     .map_err(|_| format!("Invalid PID: '{arg}'"))?;
+                if pid == 0 {
+                    return Err("PID 0 not allowed (affects process group)".to_string());
+                }
                 pids.push(pid);
             }
         }
-        
+
         i += 1;
     }
 

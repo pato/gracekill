@@ -58,10 +58,16 @@ During the grace period, processes are checked every 100ms.
 EXIT STATUS
 -----------
 0
-    Success
+    All processes exited gracefully within grace period
 
 1
     Invalid arguments or usage error
+
+2
+    No processes could be signaled (all were already dead or inaccessible)
+
+3
+    Some processes required SIGKILL (did not exit gracefully)
 
 DIAGNOSTICS
 -----------
