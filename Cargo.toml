@@ -11,7 +11,7 @@ keywords = ["process", "signal", "kill", "unix", "graceful"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-libc = "0.2"
+nix = { version = "0.29", features = ["signal", "process"] }
 
 [profile.release]
 opt-level = "z"

@@ -1,11 +1,13 @@
 #![warn(clippy::all, clippy::pedantic, clippy::cargo)]
 
-use std::convert::TryFrom;
 use std::env;
 use std::io::{self, Write};
 use std::process;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use nix::sys::signal::{self, Signal as NixSignal};
+use nix::unistd::Pid;
 
 const DEFAULT_GRACE_SECONDS: u64 = 30;
 
@@ -83,7 +85,7 @@ fn main() {
                 }
             })
             .collect();
-        
+
         send_signal_to_all(&still_running, Signal::Kill);
         process::exit(3); // Had to use SIGKILL
     }
@@ -121,7 +123,7 @@ fn send_signal_to_all(pids: &[u32], signal: Signal) -> Vec<u32> {
         Signal::Term => "SIGTERM",
         Signal::Kill => "SIGKILL",
     };
-    
+
     let mut successful_pids = Vec::with_capacity(pids.len());
     for &pid in pids {
         match send_signal(pid, signal) {
@@ -167,7 +169,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
             } else {
                 vec![arg.as_str()]
             };
-            
+
             for pid_str in pid_strings {
                 let pid = parse_and_validate_pid(pid_str)?;
                 pids.push(pid);
@@ -187,34 +189,29 @@ enum Signal {
 }
 
 fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
-    let sig_num = match signal {
-        Signal::Term => libc::SIGTERM,
-        Signal::Kill => libc::SIGKILL,
+    let nix_signal = match signal {
+        Signal::Term => NixSignal::SIGTERM,
+        Signal::Kill => NixSignal::SIGKILL,
     };
 
-    unsafe {
-        let result = libc::kill(
-            libc::pid_t::try_from(pid).map_err(|_| "PID too large".to_string())?,
-            sig_num,
-        );
-        if result == 0 {
-            Ok(())
-        } else {
-            let err = io::Error::last_os_error();
-            match err.raw_os_error() {
-                Some(libc::ESRCH) => Err("Process not found".to_string()),
-                Some(libc::EPERM) => Err("Permission denied".to_string()),
-                _ => Err(format!("Failed to send signal: {err}")),
-            }
-        }
+    let nix_pid = Pid::from_raw(
+        i32::try_from(pid).map_err(|_| "PID too large for system".to_string())?,
+    );
+
+    match signal::kill(nix_pid, nix_signal) {
+        Ok(()) => Ok(()),
+        Err(nix::errno::Errno::ESRCH) => Err("Process not found".to_string()),
+        Err(nix::errno::Errno::EPERM) => Err("Permission denied".to_string()),
+        Err(e) => Err(format!("Failed to send signal: {e}")),
     }
 }
 
 fn is_process_running(pid: u32) -> bool {
-    unsafe {
-        // Send signal 0 to check if process exists
-        libc::kill(libc::pid_t::try_from(pid).unwrap_or(-1), 0) == 0
-    }
+    let Ok(nix_pid) = i32::try_from(pid).map(Pid::from_raw) else {
+        return false; // PID too large, can't exist
+    };
+    // Send signal 0 to check if process exists
+    signal::kill(nix_pid, None).is_ok()
 }
 
 fn log(message: &str) {
