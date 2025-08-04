@@ -2,6 +2,12 @@
 name = "gracekill"
 version = "0.1.0"
 edition = "2024"
+description = "A minimal utility to gracefully terminate processes with configurable timeout"
+license = "MIT"
+repository = "https://github.com/yourusername/gracekill"
+readme = "README.md"
+keywords = ["process", "signal", "kill", "unix", "graceful"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 libc = "0.2"

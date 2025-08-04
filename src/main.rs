@@ -1,105 +1,111 @@
+use std::convert::TryFrom;
 use std::env;
-use std::process;
-use std::time::{Duration, Instant};
-use std::thread;
 use std::io::{self, Write};
+use std::process;
+use std::thread;
+use std::time::{Duration, Instant};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         print_usage(&args[0]);
         process::exit(1);
     }
-    
+
     let (pids, grace_period) = match parse_args(&args[1..]) {
         Ok(result) => result,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             print_usage(&args[0]);
             process::exit(1);
         }
     };
-    
+
     if pids.is_empty() {
         eprintln!("Error: No PIDs provided");
         process::exit(1);
     }
-    
-    log(&format!("Starting graceful kill for {} process(es) with {}s grace period", 
-                  pids.len(), grace_period.as_secs()));
-    
+
+    log(&format!(
+        "Starting graceful kill for {} process(es) with {}s grace period",
+        pids.len(),
+        grace_period.as_secs()
+    ));
+
     // Send SIGTERM to all processes
     let mut active_pids = Vec::with_capacity(pids.len());
     for &pid in &pids {
         match send_signal(pid, Signal::Term) {
             Ok(()) => {
-                log(&format!("Sent SIGTERM to PID {}", pid));
+                log(&format!("Sent SIGTERM to PID {pid}"));
                 active_pids.push(pid);
             }
             Err(e) => {
-                log(&format!("Failed to send SIGTERM to PID {}: {}", pid, e));
+                log(&format!("Failed to send SIGTERM to PID {pid}: {e}"));
             }
         }
     }
-    
+
     if active_pids.is_empty() {
         log("No processes to wait for");
         return;
     }
-    
+
     // Wait for processes to exit gracefully
     let start = Instant::now();
     let mut remaining = active_pids;
-    
+
     while !remaining.is_empty() && start.elapsed() < grace_period {
         thread::sleep(Duration::from_millis(100));
         remaining.retain(|&pid| {
             if is_process_running(pid) {
                 true
             } else {
-                log(&format!("Process {} exited gracefully", pid));
+                log(&format!("Process {pid} exited gracefully"));
                 false
             }
         });
     }
-    
+
     // Send SIGKILL to remaining processes
-    if !remaining.is_empty() {
-        log(&format!("{} process(es) still running after grace period, sending SIGKILL", 
-                      remaining.len()));
-        
+    if remaining.is_empty() {
+        log("All processes exited gracefully");
+    } else {
+        log(&format!(
+            "{} process(es) still running after grace period, sending SIGKILL",
+            remaining.len()
+        ));
+
         for &pid in &remaining {
             match send_signal(pid, Signal::Kill) {
                 Ok(()) => {
-                    log(&format!("Sent SIGKILL to PID {}", pid));
+                    log(&format!("Sent SIGKILL to PID {pid}"));
                 }
                 Err(e) => {
-                    log(&format!("Failed to send SIGKILL to PID {}: {}", pid, e));
+                    log(&format!("Failed to send SIGKILL to PID {pid}: {e}"));
                 }
             }
         }
-    } else {
-        log("All processes exited gracefully");
     }
 }
 
 fn print_usage(program: &str) {
-    eprintln!("Usage: {} <pid>[,pid...] [grace_seconds]", program);
+    eprintln!("Usage: {program} <pid>[,pid...] [grace_seconds]");
     eprintln!();
     eprintln!("Arguments:");
     eprintln!("  pid          Process ID(s) to kill (comma or space separated)");
     eprintln!("  grace_seconds  Grace period in seconds (default: 5)");
     eprintln!();
     eprintln!("Example:");
-    eprintln!("  {} 1234 5678 10", program);
-    eprintln!("  {} 1234,5678,9012 30", program);
+    eprintln!("  {program} 1234 5678 10");
+    eprintln!("  {program} 1234,5678,9012 30");
 }
 
 fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
     let mut pids = Vec::new();
     let mut grace_seconds = 5u64;
-    
+
     for (i, arg) in args.iter().enumerate() {
         // Check if this might be the grace period (last argument and parseable as number)
         if i == args.len() - 1 {
@@ -111,21 +117,24 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
                 }
             }
         }
-        
+
         // Parse PIDs (comma or space separated)
         if arg.contains(',') {
             for pid_str in arg.split(',') {
-                let pid = pid_str.trim().parse::<u32>()
-                    .map_err(|_| format!("Invalid PID: '{}'", pid_str))?;
+                let pid = pid_str
+                    .trim()
+                    .parse::<u32>()
+                    .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
                 pids.push(pid);
             }
         } else {
-            let pid = arg.parse::<u32>()
-                .map_err(|_| format!("Invalid PID: '{}'", arg))?;
+            let pid = arg
+                .parse::<u32>()
+                .map_err(|_| format!("Invalid PID: '{arg}'"))?;
             pids.push(pid);
         }
     }
-    
+
     Ok((pids, Duration::from_secs(grace_seconds)))
 }
 
@@ -140,9 +149,12 @@ fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
         Signal::Term => libc::SIGTERM,
         Signal::Kill => libc::SIGKILL,
     };
-    
+
     unsafe {
-        let result = libc::kill(pid as libc::pid_t, sig_num);
+        let result = libc::kill(
+            libc::pid_t::try_from(pid).map_err(|_| "PID too large".to_string())?,
+            sig_num,
+        );
         if result == 0 {
             Ok(())
         } else {
@@ -150,7 +162,7 @@ fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
             match err.raw_os_error() {
                 Some(libc::ESRCH) => Err("Process not found".to_string()),
                 Some(libc::EPERM) => Err("Permission denied".to_string()),
-                _ => Err(format!("Failed to send signal: {}", err)),
+                _ => Err(format!("Failed to send signal: {err}")),
             }
         }
     }
@@ -159,10 +171,10 @@ fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
 fn is_process_running(pid: u32) -> bool {
     unsafe {
         // Send signal 0 to check if process exists
-        libc::kill(pid as libc::pid_t, 0) == 0
+        libc::kill(libc::pid_t::try_from(pid).unwrap_or(-1), 0) == 0
     }
 }
 
 fn log(message: &str) {
-    let _ = writeln!(io::stderr(), "[gracekill] {}", message);
+    let _ = writeln!(io::stderr(), "[gracekill] {message}");
 }
