@@ -2,7 +2,8 @@
 name = "gracekill"
 version = "0.1.0"
 edition = "2024"
-description = "A minimal utility to gracefully terminate processes with configurable timeout"
+authors = ["Pato Lankenau <rust@p.lankenau.io>"]
+description = "A minimal utility to gracefully terminate processes with graceful escalation of SIGTERM to SIGKILL"
 license = "MIT"
 repository = "https://github.com/yourusername/gracekill"
 readme = "README.md"
