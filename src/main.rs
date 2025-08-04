@@ -1,3 +1,5 @@
+#![warn(clippy::all, clippy::pedantic, clippy::cargo)]
+
 use std::convert::TryFrom;
 use std::env;
 use std::io::{self, Write};
