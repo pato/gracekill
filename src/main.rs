@@ -38,18 +38,7 @@ fn main() {
     ));
 
     // Send SIGTERM to all processes
-    let mut active_pids = Vec::with_capacity(pids.len());
-    for &pid in &pids {
-        match send_signal(pid, Signal::Term) {
-            Ok(()) => {
-                log(&format!("Sent SIGTERM to PID {pid}"));
-                active_pids.push(pid);
-            }
-            Err(e) => {
-                log(&format!("Failed to send SIGTERM to PID {pid}: {e}"));
-            }
-        }
-    }
+    let active_pids = send_signal_to_all(&pids, Signal::Term);
 
     if active_pids.is_empty() {
         log("No processes to wait for");
@@ -82,21 +71,20 @@ fn main() {
             remaining.len()
         ));
 
-        for &pid in &remaining {
-            // Double-check process still exists before SIGKILL
-            if is_process_running(pid) {
-                match send_signal(pid, Signal::Kill) {
-                    Ok(()) => {
-                        log(&format!("Sent SIGKILL to PID {pid}"));
-                    }
-                    Err(e) => {
-                        log(&format!("Failed to send SIGKILL to PID {pid}: {e}"));
-                    }
+        // Filter to only processes still running, then send SIGKILL
+        let still_running: Vec<u32> = remaining
+            .into_iter()
+            .filter(|&pid| {
+                if is_process_running(pid) {
+                    true
+                } else {
+                    log(&format!("Process {pid} exited before SIGKILL"));
+                    false
                 }
-            } else {
-                log(&format!("Process {pid} exited before SIGKILL"));
-            }
-        }
+            })
+            .collect();
+        
+        send_signal_to_all(&still_running, Signal::Kill);
         process::exit(3); // Had to use SIGKILL
     }
 }
@@ -116,6 +104,37 @@ fn print_usage(program: &str) {
     eprintln!("  {program} 1234 5678");
     eprintln!("  {program} -g 10 1234 5678");
     eprintln!("  {program} --grace-seconds 30 1234,5678,9012");
+}
+
+fn parse_and_validate_pid(pid_str: &str) -> Result<u32, String> {
+    let pid = pid_str
+        .parse::<u32>()
+        .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
+    if pid == 0 {
+        return Err("PID 0 not allowed (affects process group)".to_string());
+    }
+    Ok(pid)
+}
+
+fn send_signal_to_all(pids: &[u32], signal: Signal) -> Vec<u32> {
+    let signal_name = match signal {
+        Signal::Term => "SIGTERM",
+        Signal::Kill => "SIGKILL",
+    };
+    
+    let mut successful_pids = Vec::with_capacity(pids.len());
+    for &pid in pids {
+        match send_signal(pid, signal) {
+            Ok(()) => {
+                log(&format!("Sent {signal_name} to PID {pid}"));
+                successful_pids.push(pid);
+            }
+            Err(e) => {
+                log(&format!("Failed to send {signal_name} to PID {pid}: {e}"));
+            }
+        }
+    }
+    successful_pids
 }
 
 fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
@@ -143,24 +162,14 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
             return Err(format!("Unknown option: '{arg}'"));
         } else {
             // Parse PIDs (comma or space separated)
-            if arg.contains(',') {
-                for pid_str in arg.split(',') {
-                    let pid = pid_str
-                        .trim()
-                        .parse::<u32>()
-                        .map_err(|_| format!("Invalid PID: '{pid_str}'"))?;
-                    if pid == 0 {
-                        return Err("PID 0 not allowed (affects process group)".to_string());
-                    }
-                    pids.push(pid);
-                }
+            let pid_strings = if arg.contains(',') {
+                arg.split(',').map(str::trim).collect::<Vec<_>>()
             } else {
-                let pid = arg
-                    .parse::<u32>()
-                    .map_err(|_| format!("Invalid PID: '{arg}'"))?;
-                if pid == 0 {
-                    return Err("PID 0 not allowed (affects process group)".to_string());
-                }
+                vec![arg.as_str()]
+            };
+            
+            for pid_str in pid_strings {
+                let pid = parse_and_validate_pid(pid_str)?;
                 pids.push(pid);
             }
         }
