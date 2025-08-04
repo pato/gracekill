@@ -135,11 +135,10 @@ enum Signal {
     Kill,
 }
 
-#[cfg(unix)]
 fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
     let sig_num = match signal {
-        Signal::Term => 15, // SIGTERM
-        Signal::Kill => 9,  // SIGKILL
+        Signal::Term => libc::SIGTERM,
+        Signal::Kill => libc::SIGKILL,
     };
     
     unsafe {
@@ -157,22 +156,11 @@ fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
     }
 }
 
-#[cfg(not(unix))]
-fn send_signal(_pid: u32, _signal: Signal) -> Result<(), String> {
-    Err("Signal sending not supported on this platform".to_string())
-}
-
-#[cfg(unix)]
 fn is_process_running(pid: u32) -> bool {
     unsafe {
         // Send signal 0 to check if process exists
         libc::kill(pid as libc::pid_t, 0) == 0
     }
-}
-
-#[cfg(not(unix))]
-fn is_process_running(_pid: u32) -> bool {
-    false
 }
 
 fn log(message: &str) {
