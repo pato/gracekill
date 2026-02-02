@@ -1,6 +1,6 @@
 [package]
 name = "gracekill"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Pato Lankenau <rust@p.lankenau.io>"]
 description = "A minimal utility to gracefully terminate processes with graceful escalation of SIGTERM to SIGKILL"

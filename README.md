@@ -14,7 +14,7 @@ DESCRIPTION
 gracekill sends SIGTERM to the specified process(es) and waits for a configurable
 grace period before sending SIGKILL to any remaining processes.
 
-The grace period defaults to 30 seconds if not specified.
+The grace period defaults to 25 seconds if not specified.
 
 Multiple PIDs may be specified either space-separated or comma-separated.
 
@@ -26,7 +26,11 @@ pid
 OPTIONS
 -------
 -g, --grace-seconds
-    Time in seconds to wait between SIGTERM and SIGKILL. Default: 30
+    Time in seconds to wait between SIGTERM and SIGKILL. Default: 25
+
+--exit-non-zero-if-sigkill-required
+    Exit with code 3 if SIGKILL was required. By default, exits with 0
+    even if SIGKILL was used.
 
 EXAMPLES
 --------
@@ -34,11 +38,11 @@ Send SIGTERM to processes 1234 and 5678, wait 10 seconds before SIGKILL:
 
     gracekill -g 10 1234 5678
 
-Send signals to comma-separated PIDs with 30 second grace period:
+Send signals to comma-separated PIDs with 25 second grace period:
 
-    gracekill --grace-seconds 30 1234,5678,9012
+    gracekill --grace-seconds 25 1234,5678,9012
 
-Use default 30 second grace period:
+Use default 25 second grace period:
 
     gracekill 1234
 
@@ -58,7 +62,7 @@ During the grace period, processes are checked every 100ms.
 EXIT STATUS
 -----------
 0
-    All processes exited gracefully within grace period
+    All processes were terminated (either gracefully or via SIGKILL)
 
 1
     Invalid arguments or usage error
@@ -67,7 +71,8 @@ EXIT STATUS
     No processes could be signaled (all were already dead or inaccessible)
 
 3
-    Some processes required SIGKILL (did not exit gracefully)
+    Some processes required SIGKILL and --exit-non-zero-if-sigkill-required
+    was specified
 
 DIAGNOSTICS
 -----------
