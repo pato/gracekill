@@ -19,7 +19,7 @@ fn main() {
         process::exit(1);
     }
 
-    let (pids, grace_period) = match parse_args(&args[1..]) {
+    let (pids, grace_period, exit_non_zero_if_sigkill_required) = match parse_args(&args[1..]) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -87,7 +87,11 @@ fn main() {
             .collect();
 
         send_signal_to_all(&still_running, Signal::Kill);
-        process::exit(3); // Had to use SIGKILL
+        if exit_non_zero_if_sigkill_required {
+            process::exit(3);
+        } else {
+            process::exit(0);
+        }
     }
 }
 
@@ -99,8 +103,9 @@ fn print_usage(program: &str) {
     eprintln!();
     eprintln!("Options:");
     eprintln!(
-        "  -g, --grace-seconds    Grace period in seconds (default: {DEFAULT_GRACE_SECONDS})"
+        "  -g, --grace-seconds                    Grace period in seconds (default: {DEFAULT_GRACE_SECONDS})"
     );
+    eprintln!("  --exit-non-zero-if-sigkill-required   Exit with code 3 if SIGKILL was required");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  {program} 1234 5678");
@@ -139,9 +144,10 @@ fn send_signal_to_all(pids: &[u32], signal: Signal) -> Vec<u32> {
     successful_pids
 }
 
-fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
+fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration, bool), String> {
     let mut pids = Vec::new();
     let mut grace_seconds = DEFAULT_GRACE_SECONDS;
+    let mut exit_non_zero_if_sigkill_required = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -160,6 +166,8 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
             grace_seconds = value
                 .parse::<u64>()
                 .map_err(|_| format!("Invalid grace-seconds value: '{value}'"))?;
+        } else if arg == "--exit-non-zero-if-sigkill-required" {
+            exit_non_zero_if_sigkill_required = true;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: '{arg}'"));
         } else {
@@ -179,7 +187,11 @@ fn parse_args(args: &[String]) -> Result<(Vec<u32>, Duration), String> {
         i += 1;
     }
 
-    Ok((pids, Duration::from_secs(grace_seconds)))
+    Ok((
+        pids,
+        Duration::from_secs(grace_seconds),
+        exit_non_zero_if_sigkill_required,
+    ))
 }
 
 #[derive(Copy, Clone)]
@@ -194,9 +206,8 @@ fn send_signal(pid: u32, signal: Signal) -> Result<(), String> {
         Signal::Kill => NixSignal::SIGKILL,
     };
 
-    let nix_pid = Pid::from_raw(
-        i32::try_from(pid).map_err(|_| "PID too large for system".to_string())?,
-    );
+    let nix_pid =
+        Pid::from_raw(i32::try_from(pid).map_err(|_| "PID too large for system".to_string())?);
 
     match signal::kill(nix_pid, nix_signal) {
         Ok(()) => Ok(()),
