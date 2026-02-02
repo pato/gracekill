@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use nix::sys::signal::{self, Signal as NixSignal};
 use nix::unistd::Pid;
 
-const DEFAULT_GRACE_SECONDS: u64 = 30;
+const DEFAULT_GRACE_SECONDS: u64 = 25;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
